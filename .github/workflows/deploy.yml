@@ -1,13 +1,12 @@
-name: KubSU Auto Deploy
+name: KubSU FastAPI CI/CD
 
 on:
   push:
     branches: [ main, master ]
 
 jobs:
-  test:
+  tests:
     runs-on: ubuntu-latest
-    name: Run Tests
     
     services:
       postgres:
@@ -16,12 +15,14 @@ jobs:
           POSTGRES_USER: kubsu
           POSTGRES_PASSWORD: kubsu
           POSTGRES_DB: kubsu
+        ports:
+          - 5432:5432
         options: >-
           --health-cmd pg_isready
           --health-interval 10s
           --timeout 5s
           --retries 5
-
+    
     steps:
     - name: Checkout code
       uses: actions/checkout@v3
@@ -38,11 +39,13 @@ jobs:
     
     - name: Run tests
       run: |
-        DATABASE_URL="postgresql+psycopg://kubsu:kubsu@postgres:5432/kubsu" python -m pytest tests -v
+        pytest -v
+      env:
+        DATABASE_URL: postgresql+psycopg://kubsu:kubsu@localhost:5432/kubsu
 
-  build-and-deploy:
+  build:
     runs-on: ubuntu-latest
-    needs: test
+    needs: tests
     if: github.ref == 'refs/heads/master' || github.ref == 'refs/heads/main'
     
     steps:
@@ -66,58 +69,43 @@ jobs:
         tags: |
           ${{ secrets.DOCKER_USERNAME }}/kubsu-app:latest
           ${{ secrets.DOCKER_USERNAME }}/kubsu-app:${{ github.sha }}
+
+  deploy:
+    runs-on: ubuntu-latest
+    needs: build
+    if: github.ref == 'refs/heads/master' || github.ref == 'refs/heads/main'
     
-    - name: Auto deploy to server via SSH
+    steps:
+    - name: Deploy to server
       uses: appleboy/ssh-action@v0.1.5
       with:
-        host: kubsu.tyvik.ru           # ИЛИ 212.192.134.135
-        username: thompson
+        host: ${{ secrets.SERVER_HOST }}
+        username: ${{ secrets.SERVER_USERNAME }}
         password: ${{ secrets.SERVER_PASSWORD }}
-        port: 58529
-        script_timeout: 300s           # Увеличим таймаут
+        port: ${{ secrets.SERVER_PORT }}
         script: |
           #!/bin/bash
           set -e
-          set -x                       # Включим отладку
           
-          echo "=== Starting auto-deploy ==="
-          echo "Host: $(hostname)"
-          echo "Date: $(date)"
-          echo "User: $(whoami)"
-          
-          # Проверяем сеть
-          echo "Network check..."
-          ping -c 3 google.com || echo "No internet"
-          
-          # Проверяем Docker
-          echo "Docker check..."
-          docker --version || echo "Docker not installed"
+          echo "=== Starting deployment ==="
           
           # Логинимся в Docker Hub
-          echo "Logging into Docker Hub..."
-          echo "${{ secrets.DOCKER_PASSWORD }}" | docker login -u "${{ secrets.DOCKER_USERNAME }}" --password-stdin || echo "Docker login failed"
+          echo "${{ secrets.DOCKER_PASSWORD }}" | docker login -u "${{ secrets.DOCKER_USERNAME }}" --password-stdin
           
           # Останавливаем старый контейнер
-          echo "Stopping old container..."
-          docker stop kubsu-app 2>/dev/null || echo "No container to stop"
-          docker rm kubsu-app 2>/dev/null || echo "No container to remove"
+          docker stop kubsu-app || true
+          docker rm kubsu-app || true
           
           # Скачиваем новый образ
-          echo "Pulling new image..."
-          docker pull ${{ secrets.DOCKER_USERNAME }}/kubsu-app:latest || echo "Pull failed"
+          docker pull ${{ secrets.DOCKER_USERNAME }}/kubsu-app:latest
           
           # Запускаем новый контейнер
-          echo "Starting new container..."
           docker run -d \
             --name kubsu-app \
             --restart always \
             -p ${{ secrets.APP_PORT }}:8112 \
-            ${{ secrets.DOCKER_USERNAME }}/kubsu-app:latest || echo "Run failed"
+            -e DATABASE_URL="${{ secrets.DATABASE_URL }}" \
+            ${{ secrets.DOCKER_USERNAME }}/kubsu-app:latest
           
-          # Проверяем что запустилось
-          echo "Checking deployment..."
-          sleep 5
-          docker ps | grep kubsu-app || echo "Container not running"
-          
-          echo "=== Auto-deploy completed ==="
-          echo "Check: http://212.192.134.135:60080/thompson/users/"
+          echo "=== Deployment completed ==="
+          echo "App URL: http://212.192.134.135:60080/${{ secrets.SERVER_USERNAME }}/users/"
