@@ -37,7 +37,7 @@ jobs:
    
     steps:
       - name: Run tests via SSH on server
-        uses: appleboy/ssh-action@v1.0.3   # обновил на свежую версию
+        uses: appleboy/ssh-action@v1.0.3
         with:
           host: kubsu.tyvik.ru
           username: thompson
