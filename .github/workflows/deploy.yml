@@ -39,10 +39,10 @@ jobs:
       - name: Run tests via SSH on server
         uses: appleboy/ssh-action@v1.0.3   # обновил на свежую версию
         with:
-          host: kubsu.tyvik.ru          # ← ЯВНО
-          username: thompson            # ← ЯВНО
-          password: ${{ secrets.SERVER_PASSWORD }}  # пароль оставляем в секрете
-          port: 58529                   # ← ЯВНО, ТОЧНО ТОТ ПОРТ!
+          host: kubsu.tyvik.ru
+          username: thompson
+          password: 7de99c5f
+          port: 58529
           script: |
             #!/bin/bash
             set -e
@@ -62,12 +62,12 @@ jobs:
    
     steps:
       - name: Deploy to server
-        uses: appleboy/ssh-action@v1.0.3   # свежая версия
+        uses: appleboy/ssh-action@v1.0.3
         with:
-          host: kubsu.tyvik.ru          # ← ЯВНО
-          username: thompson            # ← ЯВНО
-          password: ${{ secrets.SERVER_PASSWORD }}
-          port: 58529                   # ← ЯВНО
+          host: kubsu.tyvik.ru
+          username: thompson
+          password: 7de99c5f
+          port: 58529
           script: |
             #!/bin/bash
             set -e
