@@ -42,7 +42,7 @@ jobs:
         with:
           host: kubsu.tyvik.ru
           username: thompson
-          key: ${{ secrets.SERVER_SSH_KEY }}  # ⬅️ SSH КЛЮЧ вместо пароля!
+          key: ${{ secrets.SERVER_SSH_KEY }}
           port: 58529
           script: |
             #!/bin/bash
