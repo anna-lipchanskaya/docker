@@ -16,7 +16,7 @@ jobs:
           POSTGRES_PASSWORD: kubsu
           POSTGRES_DB: kubsu
         ports:
-          - 5432:5432
+          - 5433:5432
         options: >-
           --health-cmd pg_isready
           --health-interval 10s
@@ -41,7 +41,7 @@ jobs:
       run: |
         pytest tests -v
       env:
-        DATABASE_URL: postgresql+psycopg://kubsu:kubsu@localhost:5432/kubsu
+        DATABASE_URL: postgresql+psycopg://kubsu:kubsu@localhost:5433/kubsu
 
   build:
     runs-on: ubuntu-latest
