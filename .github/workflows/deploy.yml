@@ -1,4 +1,4 @@
-name: KubSU FastAPI CI/CD
+name: CI/CD KubSU FastAPI App
 
 on:
   push:
@@ -17,13 +17,13 @@ jobs:
         id: set-sha
         run: echo "sha=${{ github.sha }}" >> $GITHUB_OUTPUT
 
-      - name: Log in to Docker Hub
+      - name: Login to Docker Hub
         uses: docker/login-action@v2
         with:
           username: ${{ secrets.DOCKER_USERNAME }}
           password: ${{ secrets.DOCKER_PASSWORD }}
 
-      - name: Build and push Docker image
+      - name: Build and push
         run: |
           IMAGE_NAME=${{ secrets.DOCKER_USERNAME }}/kubsu-app:${{ github.sha }}
           IMAGE_LATEST=${{ secrets.DOCKER_USERNAME }}/kubsu-app:latest
@@ -37,27 +37,29 @@ jobs:
     needs: build-and-push
     
     steps:
-      - name: Run tests via SSH
-        uses: appleboy/ssh-action@v0.1.5
+      - name: Run tests on server via SSH
+        uses: appleboy/ssh-action@v1.0.0  # ⬅️ Версия 1.0.0
         with:
-          host: kubsu.tyvik.ru          # ⬅️ ИЗМЕНИТЬ!
-          username: thompson            # ⬅️ ИЗМЕНИТЬ!
-          password: ${{ secrets.SERVER_PASSWORD }}
-          port: 58529                   # ⬅️ ИЗМЕНИТЬ!
+          host: kubsu.tyvik.ru
+          username: thompson
+          key: ${{ secrets.SERVER_SSH_KEY }}  # ⬅️ SSH КЛЮЧ вместо пароля!
+          port: 58529
           script: |
             #!/bin/bash
             set -e
             
-            echo "Running tests on server..."
+            echo "=== Running tests on server ==="
             
             # Логинимся в Docker Hub
             echo "${{ secrets.DOCKER_PASSWORD }}" | docker login -u "${{ secrets.DOCKER_USERNAME }}" --password-stdin
             
-            # Запускаем тесты в контейнере
+            # Запускаем тесты
             docker run --rm \
               --name kubsu-app-test \
               ${{ secrets.DOCKER_USERNAME }}/kubsu-app:${{ github.sha }} \
               python -m pytest tests -v
+            
+            echo "=== Tests completed successfully ==="
 
   deploy:
     runs-on: ubuntu-latest
@@ -65,13 +67,13 @@ jobs:
     if: github.ref == 'refs/heads/master' || github.ref == 'refs/heads/main'
     
     steps:
-      - name: Deploy to server
-        uses: appleboy/ssh-action@v0.1.5
+      - name: Deploy to server via SSH
+        uses: appleboy/ssh-action@v1.0.0  # ⬅️ Та же версия
         with:
-          host: kubsu.tyvik.ru          # ⬅️ ИЗМЕНИТЬ!
-          username: thompson            # ⬅️ ИЗМЕНИТЬ!
-          password: ${{ secrets.SERVER_PASSWORD }}
-          port: 58529                   # ⬅️ ИЗМЕНИТЬ!
+          host: kubsu.tyvik.ru
+          username: thompson
+          key: ${{ secrets.SERVER_SSH_KEY }}  # ⬅️ SSH КЛЮЧ
+          port: 58529
           script: |
             #!/bin/bash
             set -e
@@ -91,7 +93,7 @@ jobs:
             # Скачиваем новый образ
             docker pull ${{ secrets.DOCKER_USERNAME }}/kubsu-app:latest
             
-            # Запускаем новый контейнер с портом 8112
+            # Запускаем новый контейнер
             docker run -d \
               --name kubsu-app \
               --restart always \
