@@ -1,4 +1,4 @@
-name: CI/CD KubSU FastAPI App
+name: KubSU FastAPI CI/CD
 
 on:
   push:
@@ -37,21 +37,23 @@ jobs:
     needs: build-and-push
     
     steps:
-      - name: Run tests via SSH on server
+      - name: Run tests via SSH
         uses: appleboy/ssh-action@v0.1.5
         with:
-          host: ${{ secrets.SERVER_HOST }}
-          username: ${{ secrets.SERVER_USERNAME }}
+          host: kubsu.tyvik.ru          # ⬅️ ИЗМЕНИТЬ!
+          username: thompson            # ⬅️ ИЗМЕНИТЬ!
           password: ${{ secrets.SERVER_PASSWORD }}
-          port: ${{ secrets.SERVER_PORT }}
+          port: 58529                   # ⬅️ ИЗМЕНИТЬ!
           script: |
             #!/bin/bash
             set -e
             
             echo "Running tests on server..."
-
+            
+            # Логинимся в Docker Hub
             echo "${{ secrets.DOCKER_PASSWORD }}" | docker login -u "${{ secrets.DOCKER_USERNAME }}" --password-stdin
             
+            # Запускаем тесты в контейнере
             docker run --rm \
               --name kubsu-app-test \
               ${{ secrets.DOCKER_USERNAME }}/kubsu-app:${{ github.sha }} \
@@ -66,21 +68,30 @@ jobs:
       - name: Deploy to server
         uses: appleboy/ssh-action@v0.1.5
         with:
-          host: ${{ secrets.SERVER_HOST }}
-          username: ${{ secrets.SERVER_USERNAME }}
+          host: kubsu.tyvik.ru          # ⬅️ ИЗМЕНИТЬ!
+          username: thompson            # ⬅️ ИЗМЕНИТЬ!
           password: ${{ secrets.SERVER_PASSWORD }}
-          port: ${{ secrets.SERVER_PORT }}
+          port: 58529                   # ⬅️ ИЗМЕНИТЬ!
           script: |
             #!/bin/bash
             set -e
             
             echo "=== Starting deployment ==="
-
+            
+            # Логинимся в Docker Hub
             echo "${{ secrets.DOCKER_PASSWORD }}" | docker login -u "${{ secrets.DOCKER_USERNAME }}" --password-stdin
-
+            
+            # Останавливаем старый контейнер
             docker stop kubsu-app || true
             docker rm kubsu-app || true
-
+            
+            # Удаляем старый образ
+            docker rmi ${{ secrets.DOCKER_USERNAME }}/kubsu-app:latest || true
+            
+            # Скачиваем новый образ
+            docker pull ${{ secrets.DOCKER_USERNAME }}/kubsu-app:latest
+            
+            # Запускаем новый контейнер с портом 8112
             docker run -d \
               --name kubsu-app \
               --restart always \
@@ -88,4 +99,4 @@ jobs:
               ${{ secrets.DOCKER_USERNAME }}/kubsu-app:latest
             
             echo "=== Deployment completed ==="
-            echo "App URL: http://212.192.134.135:60080/${{ secrets.SERVER_USERNAME }}/users/"
+            echo "App URL: http://212.192.134.135:60080/thompson/users/"
