@@ -1,42 +1,40 @@
-FROM ubuntu:22.04
+# Используем slim образ для экономии места
+FROM python:3.10-slim
 
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1
-ENV DEBIAN_FRONTEND=noninteractive
-ENV TZ=Europe/Moscow
 ENV PORT=8112
+ENV TZ=Europe/Moscow
 
 WORKDIR /app
 
+# Установка зависимостей системы
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    python3.10 \
-    python3-pip \
-    python3.10-venv \
     gcc \
-    postgresql-client \
     libpq-dev \
     curl \
-    ca-certificates \
-    netcat-openbsd \
+    netcat-traditional \
     && rm -rf /var/lib/apt/lists/*
 
-RUN ln -s /usr/bin/python3 /usr/local/bin/python
+# Копируем зависимости отдельно для кэширования
+COPY pyproject.toml README.md ./
 
-COPY pyproject.toml ./
+# Устанавливаем Python зависимости
+RUN pip install --no-cache-dir --upgrade pip && \
+    pip install --no-cache-dir .
 
-RUN pip3 install --no-cache-dir --upgrade pip && \
-    pip3 install --no-cache-dir .
-
+# Копируем код
 COPY . .
 
-RUN useradd -m -u 1000 appuser && chown -R appuser:appuser /app
+# Создаем пользователя
+RUN useradd -m -u 1000 appuser && \
+    chown -R appuser:appuser /app
 USER appuser
-
-ENV PYTHONPATH=/app
 
 EXPOSE 8112
 
-HEALTHCHECK --interval=30s --timeout=3s --start-period=10s --retries=3 \
-  CMD curl -f http://localhost:8112/users/ || exit 1
+# Healthcheck
+HEALTHCHECK --interval=30s --timeout=3s --start-period=30s --retries=3 \
+  CMD curl -f http://localhost:8112/ || exit 1
 
 CMD ["uvicorn", "src.main:app", "--host", "0.0.0.0", "--port", "8112"]
