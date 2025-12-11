@@ -62,6 +62,7 @@ jobs:
           podman run --replace -d \
             --name app \
             --restart always \
+            --network host \
             -p 8112:8112 \
             ghcr.io/${{ github.repository }}/app:latest
 
