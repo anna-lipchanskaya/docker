@@ -8,7 +8,7 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       sha: ${{ steps.set-sha.outputs.sha }}
-   
+      
     steps:
       - uses: actions/checkout@v3
       
