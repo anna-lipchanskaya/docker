@@ -9,7 +9,7 @@ jobs:
     runs-on: self-hosted
     outputs:
       sha: ${{ steps.set-sha.outputs.sha }}
-
+      
     steps:
       - uses: actions/checkout@v4
 
@@ -62,7 +62,6 @@ jobs:
           podman run --replace -d \
             --name app \
             --restart always \
-            --network host \
             -p 8112:8112 \
             ghcr.io/${{ github.repository }}/app:latest
 
