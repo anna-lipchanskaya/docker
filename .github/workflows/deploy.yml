@@ -3,7 +3,7 @@ name: CI/CD for FastAPI App
 on:
   push:
     branches: [ main, master ]
-
+    
 jobs:
   build-and-push:
     runs-on: self-hosted
