@@ -1,40 +1,47 @@
-name: CI/CD KubSU FastAPI App
+name: CI/CD KubSU FastAPI App with Podman and GHCR
+
 on:
   push:
     branches: [ main, master ]
 
 jobs:
   build-and-push:
-    runs-on: ubuntu-latest
+    runs-on: self-hosted
     outputs:
       sha: ${{ steps.set-sha.outputs.sha }}
-      
+    
     steps:
       - uses: actions/checkout@v3
       
       - name: Set image SHA
         id: set-sha
         run: echo "sha=${{ github.sha }}" >> $GITHUB_OUTPUT
-        
-      - name: Log in to Docker Hub
+      
+      - name: Log in to GHCR
         uses: docker/login-action@v2
         with:
-          username: ${{ secrets.DOCKER_USERNAME }}
-          password: ${{ secrets.DOCKER_PASSWORD }}
-          
-      - name: Build and push Docker image
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GHCR_TOKEN }}
+      
+      - name: Build and push test image
         run: |
-          IMAGE_NAME=${{ secrets.DOCKER_USERNAME }}/kubsu-app:${{ github.sha }}
-          IMAGE_LATEST=${{ secrets.DOCKER_USERNAME }}/kubsu-app:latest
-         
-          docker build -t $IMAGE_NAME -t $IMAGE_LATEST .
-          docker push $IMAGE_NAME
+          IMAGE_TEST=ghcr.io/${{ github.repository }}/kubsu-app:test-${{ github.sha }}
+          docker build --target test -t $IMAGE_TEST .
+          docker push $IMAGE_TEST
+      
+      - name: Build and push runtime image
+        run: |
+          IMAGE_RUNTIME=ghcr.io/${{ github.repository }}/kubsu-app:runtime-${{ github.sha }}
+          IMAGE_LATEST=ghcr.io/${{ github.repository }}/kubsu-app:latest
+          docker build --target runtime -t $IMAGE_RUNTIME -t $IMAGE_LATEST .
+          docker push $IMAGE_RUNTIME
           docker push $IMAGE_LATEST
 
   test:
-    runs-on: ubuntu-latest
+    runs-on: self-hosted
     needs: build-and-push
-   
+    
     steps:
       - name: Run tests via SSH on server
         uses: appleboy/ssh-action@v1.0.3
@@ -46,20 +53,25 @@ jobs:
           script: |
             #!/bin/bash
             set -e
-           
+            
             echo "Running tests on server..."
-            echo "${{ secrets.DOCKER_PASSWORD }}" | docker login -u "${{ secrets.DOCKER_USERNAME }}" --password-stdin
-           
-            docker run --rm \
+            IMAGE_TEST=ghcr.io/${{ github.repository }}/kubsu-app:test-${{ github.sha }}
+            
+            podman login ghcr.io -u ${{ github.actor }} -p ${{ secrets.GHCR_TOKEN }}
+            
+            podman run --rm \
               --name kubsu-app-test \
-              ${{ secrets.DOCKER_USERNAME }}/kubsu-app:${{ github.sha }} \
+              --network host \
+              $IMAGE_TEST \
               python -m pytest tests -v
+            
+            podman rmi $IMAGE_TEST || true
 
   deploy:
-    runs-on: ubuntu-latest
+    runs-on: self-hosted
     needs: test
     if: github.ref == 'refs/heads/master' || github.ref == 'refs/heads/main'
-   
+    
     steps:
       - name: Deploy to server
         uses: appleboy/ssh-action@v1.0.3
@@ -71,18 +83,29 @@ jobs:
           script: |
             #!/bin/bash
             set -e
-           
+            
             echo "=== Starting deployment ==="
-            echo "${{ secrets.DOCKER_PASSWORD }}" | docker login -u "${{ secrets.DOCKER_USERNAME }}" --password-stdin
-           
-            docker stop kubsu-app || true
-            docker rm kubsu-app || true
-           
-            docker run -d \
+            
+            IMAGE_RUNTIME=ghcr.io/${{ github.repository }}/kubsu-app:runtime-${{ github.sha }}
+            IMAGE_LATEST=ghcr.io/${{ github.repository }}/kubsu-app:latest
+            
+            podman login ghcr.io -u ${{ github.actor }} -p ${{ secrets.GHCR_TOKEN }}
+            
+            podman stop kubsu-app || true
+            podman rm -f kubsu-app || true
+            
+            podman run --replace -d \
               --name kubsu-app \
               --restart always \
+              --network host \
               -p ${{ secrets.APP_PORT }}:8112 \
-              ${{ secrets.DOCKER_USERNAME }}/kubsu-app:latest
-           
+              $IMAGE_LATEST
+            
+            # Cleanup old images
+            podman images --format "{{.Repository}}:{{.Tag}}" \
+            | grep 'kubsu-app:runtime-' \
+            | grep -v "${{ github.sha }}" \
+            | xargs -r podman rmi -f || true
+            
             echo "=== Deployment completed ==="
             echo "App URL: http://kubsu.tyvik.ru:60080/thompson/users/"
