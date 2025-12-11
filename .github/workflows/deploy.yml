@@ -9,71 +9,65 @@ jobs:
     runs-on: self-hosted
     outputs:
       sha: ${{ steps.set-sha.outputs.sha }}
-    
+
     steps:
-      - uses: actions/checkout@v3
-      
+      - uses: actions/checkout@v4
+
       - name: Set image SHA
         id: set-sha
-        run: echo "sha=${GITHUB_SHA}" >> $GITHUB_OUTPUT  # Современный синтаксис
-      
+        run: echo "sha=${GITHUB_SHA}" >> $GITHUB_OUTPUT
+
       - name: Log in to GHCR
-        run: |
-          echo "${{ secrets.GHCR_TOKEN }}" | podman login ghcr.io -u "${{ github.actor }}" --password-stdin
-        # ^-- В секреты нужно добавить GHCR_TOKEN (Personal Access Token с правами write:packages)
-      
+        run: echo "${{ secrets.GHCR_PAT }}" | podman login ghcr.io -u anna-lipchanskaya --password-stdin
+        # ← это единственное, что нужно для твоей конфигурации
+
       - name: Build and push test image
         run: |
-          IMAGE_TEST="ghcr.io/${{ github.repository }}/app:test-${GITHUB_SHA}"
-          podman build --target test -t "$IMAGE_TEST" .
-          podman push "$IMAGE_TEST"
-      
-      - name: Build and push runtime image
+          IMAGE=ghcr.io/${{ github.repository }}/app:test-${{ github.sha }}
+          podman build --target test -t $IMAGE .
+          podman push $IMAGE
+
+      - name: Build and push runtime image + latest
         run: |
-          IMAGE_RUNTIME="ghcr.io/${{ github.repository }}/app:runtime-${GITHUB_SHA}"
-          IMAGE_LATEST="ghcr.io/${{ github.repository }}/app:latest"
-          podman build --target runtime -t "$IMAGE_RUNTIME" -t "$IMAGE_LATEST" .
-          podman push "$IMAGE_RUNTIME"
-          podman push "$IMAGE_LATEST"
+          IMAGE_SHA=ghcr.io/${{ github.repository }}/app:runtime-${{ github.sha }}
+          IMAGE_LATEST=ghcr.io/${{ github.repository }}/app:latest
+          podman build --target runtime -t $IMAGE_SHA -t $IMAGE_LATEST .
+          podman push $IMAGE_SHA
+          podman push $IMAGE_LATEST
 
   test:
     runs-on: self-hosted
     needs: build-and-push
-    
     steps:
-      - name: Run tests locally
+      - name: Run tests
         run: |
           set -e
-          IMAGE_TEST="ghcr.io/${{ github.repository }}/app:test-${GITHUB_SHA}"
-          # Логин НЕ НУЖЕН, если образ публичный или уже скачан в предыдущем job
-          podman run --rm --name app-test --network host "$IMAGE_TEST"
-          podman rmi "$IMAGE_TEST" || true
+          IMAGE=ghcr.io/${{ github.repository }}/app:test-${{ github.sha }}
+          echo "${{ secrets.GHCR_PAT }}" | podman login ghcr.io -u anna-lipchanskaya --password-stdin
+          podman run --rm --network host $IMAGE
+          podman rmi $IMAGE || true
 
   deploy:
     runs-on: self-hosted
     needs: test
-    if: github.ref == 'refs/heads/master' || github.ref == 'refs/heads/main'
-    
+    if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master'
     steps:
-      - name: Deploy runtime image locally
+      - name: Deploy latest
         run: |
           set -e
-          IMAGE_LATEST="ghcr.io/${{ github.repository }}/app:latest"
-          
-          # Останавливаем и удаляем старый контейнер
+          echo "${{ secrets.GHCR_PAT }}" | podman login ghcr.io -u anna-lipchanskaya --password-stdin
+
           podman stop app || true
           podman rm -f app || true
-          
-          # Запускаем новый из образа latest (он уже должен быть доступен локально после push)
+
           podman run --replace -d \
             --name app \
             --restart always \
             --network host \
             -p 8112:8112 \
-            "$IMAGE_LATEST"
-          
-          # Очистка старых образов runtime-* (опционально)
+            ghcr.io/${{ github.repository }}/app:latest
+
           podman images --format "{{.Repository}}:{{.Tag}}" \
-            | grep 'app:runtime-' \
-            | grep -v "${GITHUB_SHA}" \
+            | grep '/app:runtime-' \
+            | grep -v "${{ github.sha }}" \
             | xargs -r podman rmi -f || true
