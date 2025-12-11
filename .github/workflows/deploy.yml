@@ -13,13 +13,12 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Set image SHA
+      - name: SHA
         id: set-sha
         run: echo "sha=${GITHUB_SHA}" >> $GITHUB_OUTPUT
 
       - name: Log in to GHCR
         run: echo "${{ secrets.GHCR_PAT }}" | podman login ghcr.io -u anna-lipchanskaya --password-stdin
-        # ← это единственное, что нужно для твоей конфигурации
 
       - name: Build and push test image
         run: |
@@ -27,7 +26,7 @@ jobs:
           podman build --target test -t $IMAGE .
           podman push $IMAGE
 
-      - name: Build and push runtime image + latest
+      - name: Build and push runtime image
         run: |
           IMAGE_SHA=ghcr.io/${{ github.repository }}/app:runtime-${{ github.sha }}
           IMAGE_LATEST=ghcr.io/${{ github.repository }}/app:latest
@@ -52,7 +51,7 @@ jobs:
     needs: test
     if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master'
     steps:
-      - name: Deploy latest
+      - name: Deploy
         run: |
           set -e
           echo "${{ secrets.GHCR_PAT }}" | podman login ghcr.io -u anna-lipchanskaya --password-stdin
