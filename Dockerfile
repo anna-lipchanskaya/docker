@@ -62,7 +62,7 @@ CMD ["pytest", "-v", "tests"]
 
 
 # ---------- Stage 3: Runtime ----------
-FROM ubuntu:22.04 AS runtime
+FROM python:3.10-slim AS runtime
 
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1
@@ -73,7 +73,6 @@ ENV PORT=8112
 WORKDIR /app
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    python3.10 \
     libpq5 \
     curl \
     ca-certificates \
