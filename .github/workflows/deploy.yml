@@ -1,79 +1,67 @@
-name: CI/CD for FastAPI App
+name: CI/CD
 
 on:
   push:
-    branches: [ main, master ]
+    branches: [ main ]
 
 jobs:
   build-and-push:
     runs-on: self-hosted
     outputs:
       sha: ${{ steps.set-sha.outputs.sha }}
-    
     steps:
       - uses: actions/checkout@v3
-      
+
       - name: Set image SHA
         id: set-sha
-        run: echo "sha=${GITHUB_SHA}" >> $GITHUB_OUTPUT
-      
+        run: echo "::set-output name=sha::${GITHUB_SHA}"
+
       - name: Log in to GHCR
         run: |
           echo "${{ secrets.GHCR_TOKEN }}" | podman login ghcr.io -u "${{ github.actor }}" --password-stdin
-        # ^-- В секреты нужно добавить GHCR_TOKEN (Personal Access Token с правами write:packages)
-      
+
       - name: Build and push test image
         run: |
-          IMAGE_TEST="ghcr.io/${{ github.repository }}/app:test-${GITHUB_SHA}"
-          podman build --target test -t "$IMAGE_TEST" .
-          podman push "$IMAGE_TEST"
-      
+          IMAGE_TEST=ghcr.io/kirehwye/python-app:test-${{ github.sha }}
+          podman build --target test -t $IMAGE_TEST .
+          podman push $IMAGE_TEST
+
       - name: Build and push runtime image
         run: |
-          IMAGE_RUNTIME="ghcr.io/${{ github.repository }}/app:runtime-${GITHUB_SHA}"
-          IMAGE_LATEST="ghcr.io/${{ github.repository }}/app:latest"
-          podman build --target runtime -t "$IMAGE_RUNTIME" -t "$IMAGE_LATEST" .
-          podman push "$IMAGE_RUNTIME"
-          podman push "$IMAGE_LATEST"
+          IMAGE_RUNTIME=ghcr.io/kirehwye/python-app:runtime-${{ github.sha }}
+          podman build --target runtime -t $IMAGE_RUNTIME .
+          podman push $IMAGE_RUNTIME
 
   test:
     runs-on: self-hosted
     needs: build-and-push
-    
     steps:
       - name: Run tests locally
         run: |
           set -e
-          IMAGE_TEST="ghcr.io/${{ github.repository }}/app:test-${GITHUB_SHA}"
-          # Логин НЕ НУЖЕН, если образ публичный или уже скачан в предыдущем job
-          podman run --rm --name app-test --network host "$IMAGE_TEST"
-          podman rmi "$IMAGE_TEST" || true
+          IMAGE_TEST=ghcr.io/kirehwye/python-app:test-${{ github.sha }}
+          podman login ghcr.io -u "${{ github.actor }}" -p "${{ secrets.GHCR_TOKEN }}"
+          podman run --rm --name python-app-test --network host $IMAGE_TEST python -m pytest -v tests
+          podman rmi $IMAGE_TEST || true
 
   deploy:
     runs-on: self-hosted
     needs: test
-    if: github.ref == 'refs/heads/master' || github.ref == 'refs/heads/main'
-    
     steps:
       - name: Deploy runtime image locally
         run: |
           set -e
-          IMAGE_LATEST="ghcr.io/${{ github.repository }}/app:latest"
-          
-          # Останавливаем и удаляем старый контейнер
-          podman stop app || true
-          podman rm -f app || true
-          
-          # Запускаем новый из образа latest (он уже должен быть доступен локально после push)
-          podman run --replace -d \
-            --name app \
-            --restart always \
-            --network host \
-            -p 8112:8112 \
-            "$IMAGE_LATEST"
-          
-          # Очистка старых образов runtime-* (опционально)
+
+          IMAGE_RUNTIME=ghcr.io/kirehwye/python-app:runtime-${{ github.sha }}
+
+          podman login ghcr.io -u "${{ github.actor }}" -p "${{ secrets.GHCR_TOKEN }}"
+
+          podman stop python-app || true
+          podman rm -f python-app || true
+
+          podman run --replace -d --name python-app --network host -p 8064:8064 $IMAGE_RUNTIME
+
           podman images --format "{{.Repository}}:{{.Tag}}" \
-            | grep 'app:runtime-' \
-            | grep -v "${GITHUB_SHA}" \
+            | grep 'python-app:runtime-' \
+            | grep -v "${{ github.sha }}" \
             | xargs -r podman rmi -f || true
