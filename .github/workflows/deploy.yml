@@ -1,4 +1,4 @@
-name: CI/CD KubSU FastAPI App with Podman and GHCR
+name: CI/CD for FastAPI App
 
 on:
   push:
@@ -15,23 +15,26 @@ jobs:
       
       - name: Set image SHA
         id: set-sha
-        run: echo "::set-output name=sha::${GITHUB_SHA}"
+        run: echo "sha=${GITHUB_SHA}" >> $GITHUB_OUTPUT
       
       - name: Log in to GHCR
         run: |
-          echo "7de99c5f" | podman login ghcr.io -u "${{ github.actor }}" --password-stdin
+          echo "${{ secrets.GHCR_TOKEN }}" | podman login ghcr.io -u "${{ github.actor }}" --password-stdin
+        # ^-- В секреты нужно добавить GHCR_TOKEN (Personal Access Token с правами write:packages)
       
       - name: Build and push test image
         run: |
-          IMAGE_TEST=ghcr.io/${{ github.repository }}/kubsu-app:test-${{ github.sha }}
-          podman build --target test -t $IMAGE_TEST .
-          podman push $IMAGE_TEST
+          IMAGE_TEST="ghcr.io/${{ github.repository }}/app:test-${GITHUB_SHA}"
+          podman build --target test -t "$IMAGE_TEST" .
+          podman push "$IMAGE_TEST"
       
       - name: Build and push runtime image
         run: |
-          IMAGE_RUNTIME=ghcr.io/${{ github.repository }}/kubsu-app:runtime-${{ github.sha }}
-          podman build --target runtime -t $IMAGE_RUNTIME .
-          podman push $IMAGE_RUNTIME
+          IMAGE_RUNTIME="ghcr.io/${{ github.repository }}/app:runtime-${GITHUB_SHA}"
+          IMAGE_LATEST="ghcr.io/${{ github.repository }}/app:latest"
+          podman build --target runtime -t "$IMAGE_RUNTIME" -t "$IMAGE_LATEST" .
+          podman push "$IMAGE_RUNTIME"
+          podman push "$IMAGE_LATEST"
 
   test:
     runs-on: self-hosted
@@ -41,10 +44,10 @@ jobs:
       - name: Run tests locally
         run: |
           set -e
-          IMAGE_TEST=ghcr.io/${{ github.repository }}/kubsu-app:test-${{ github.sha }}
-          podman login ghcr.io -u "${{ github.actor }}" -p "7de99c5f"
-          podman run --rm --name kubsu-app-test --network host $IMAGE_TEST python -m pytest -v tests
-          podman rmi $IMAGE_TEST || true
+          IMAGE_TEST="ghcr.io/${{ github.repository }}/app:test-${GITHUB_SHA}"
+          # Логин НЕ НУЖЕН, если образ публичный или уже скачан в предыдущем job
+          podman run --rm --name app-test --network host "$IMAGE_TEST"
+          podman rmi "$IMAGE_TEST" || true
 
   deploy:
     runs-on: self-hosted
@@ -55,17 +58,22 @@ jobs:
       - name: Deploy runtime image locally
         run: |
           set -e
-
-          IMAGE_RUNTIME=ghcr.io/${{ github.repository }}/kubsu-app:runtime-${{ github.sha }}
-
-          podman login ghcr.io -u "${{ github.actor }}" -p "7de99c5f"
-
-          podman stop kubsu-app || true
-          podman rm -f kubsu-app || true
-
-          podman run --replace -d --name kubsu-app --network host -p ${{ secrets.APP_PORT }}:8112 $IMAGE_RUNTIME
-
+          IMAGE_LATEST="ghcr.io/${{ github.repository }}/app:latest"
+          
+          # Останавливаем и удаляем старый контейнер
+          podman stop app || true
+          podman rm -f app || true
+          
+          # Запускаем новый из образа latest (он уже должен быть доступен локально после push)
+          podman run --replace -d \
+            --name app \
+            --restart always \
+            --network host \
+            -p 8112:8112 \
+            "$IMAGE_LATEST"
+          
+          # Очистка старых образов runtime-* (опционально)
           podman images --format "{{.Repository}}:{{.Tag}}" \
-            | grep 'kubsu-app:runtime-' \
-            | grep -v "${{ github.sha }}" \
+            | grep 'app:runtime-' \
+            | grep -v "${GITHUB_SHA}" \
             | xargs -r podman rmi -f || true
