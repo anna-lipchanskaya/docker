@@ -1,10 +1,40 @@
-FROM ubuntu:22.04
+# ---------- Stage 1: Builder ----------
+FROM ubuntu:22.04 AS builder
 
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1
 ENV DEBIAN_FRONTEND=noninteractive
 ENV TZ=Europe/Moscow
-ENV PORT=8112
+
+WORKDIR /app
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    python3.10 \
+    python3-pip \
+    python3.10-venv \
+    gcc \
+    postgresql-client \
+    libpq-dev \
+    curl \
+    ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN ln -s /usr/bin/python3 /usr/local/bin/python
+
+COPY pyproject.toml ./
+
+RUN pip3 install --no-cache-dir --upgrade pip && \
+    pip3 install --no-cache-dir .
+
+COPY src ./src
+
+# ---------- Stage 2: Test ----------
+FROM ubuntu:22.04 AS test
+
+ENV PYTHONDONTWRITEBYTECODE=1
+ENV PYTHONUNBUFFERED=1
+ENV DEBIAN_FRONTEND=noninteractive
+ENV TZ=Europe/Moscow
 
 WORKDIR /app
 
@@ -23,15 +53,49 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 RUN ln -s /usr/bin/python3 /usr/local/bin/python
 
 COPY pyproject.toml ./
+COPY --from=builder /usr/local/lib/python3.10/dist-packages /usr/local/lib/python3.10/dist-packages
+COPY --from=builder /usr/local/bin /usr/local/bin
+COPY src ./src
+COPY tests ./tests
 
-RUN pip3 install --no-cache-dir --upgrade pip && \
-    pip3 install --no-cache-dir .
+RUN pip3 install --no-cache-dir -e ".[test]"
 
-COPY . .
+CMD ["pytest", "-v", "tests"]
 
-RUN useradd -m -u 1000 appuser && chown -R appuser:appuser /app
+# ---------- Stage 3: Runtime ----------
+FROM ubuntu:22.04 AS runtime
+
+ENV PYTHONDONTWRITEBYTECODE=1
+ENV PYTHONUNBUFFERED=1
+ENV DEBIAN_FRONTEND=noninteractive
+ENV TZ=Europe/Moscow
+ENV PORT=8112
+
+WORKDIR /app
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    python3.10 \
+    python3.10-venv \
+    libpq5 \
+    curl \
+    ca-certificates \
+    netcat-openbsd \
+    && rm -rf /var/lib/apt/lists/* && \
+    apt-get clean
+
+RUN ln -s /usr/bin/python3 /usr/local/bin/python
+
+COPY --from=builder /usr/local/lib/python3.10/dist-packages /usr/local/lib/python3.10/dist-packages
+COPY --from=builder /usr/local/bin /usr/local/bin
+COPY --from=builder /app/src /app/src
+
+RUN find /usr/local/lib/python3.10/dist-packages -name '__pycache__' -type d -exec rm -rf {} + \
+    && find /usr/local/lib/python3.10/dist-packages -name '*.pyc' -type f -delete
+
+RUN useradd -m -u 1000 appuser && \
+    chown -R appuser:appuser /app
+
 USER appuser
-
 ENV PYTHONPATH=/app
 
 EXPOSE 8112
