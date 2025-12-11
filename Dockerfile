@@ -20,12 +20,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 RUN ln -s /usr/bin/python3 /usr/local/bin/python
 
-# Копируем только pyproject.toml и устанавливаем зависимости + сам пакет в editable-режиме
 COPY pyproject.toml ./
 RUN pip install --no-cache-dir --upgrade pip && \
-    pip install --no-cache-dir -e ".[test]"   # сразу ставим всё, включая dev/test зависимости
+    pip install --no-cache-dir -e ".[test]"
 
-# Теперь копируем исходники (после установки, чтобы не переустанавливать зависимости при изменении кода)
 COPY src ./src
 
 
@@ -51,16 +49,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 RUN ln -s /usr/bin/python3 /usr/local/bin/python
 
-# Копируем уже установленные пакеты и бинарники из builder
 COPY --from=builder /usr/local/lib/python3.10/dist-packages /usr/local/lib/python3.10/dist-packages
 COPY --from=builder /usr/local/bin /usr/local/bin
 
-# Копируем исходники и тесты
 COPY src ./src
 COPY tests ./tests
 COPY pyproject.toml ./
 
-# Убеждаемся, что пакет виден (editable install уже сделан в builder, но на всякий случай)
 ENV PYTHONPATH=/app
 
 CMD ["pytest", "-v", "tests"]
@@ -88,22 +83,18 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 RUN ln -s /usr/bin/python3 /usr/local/bin/python
 
-# Копируем только нужное из builder
 COPY --from=builder /usr/local/lib/python3.10/dist-packages /usr/local/lib/python3.10/dist-packages
 COPY --from=builder /usr/local/bin /usr/local/bin
 COPY --from=builder /app/src /app/src
 
-# Удаляем __pycache__ и .pyc файлы
 RUN find /usr/local/lib/python3.10/dist-packages -name '__pycache__' -type d -exec rm -rf {} + && \
     find /usr/local/lib/python3.10/dist-packages -name '*.pyc' -delete
 
-# Создаём непривилегированного пользователя
 RUN useradd -m -u 1000 appuser && \
     chown -R appuser:appuser /app
 
 USER appuser
 
-# Обязательно, чтобы src был виден
 ENV PYTHONPATH=/app
 
 EXPOSE 8112
