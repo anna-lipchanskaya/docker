@@ -21,6 +21,9 @@ FROM python:3.10-slim AS test
 
 WORKDIR /app
 
+# Устанавливаем PYTHONPATH здесь
+ENV PYTHONPATH=/app
+
 RUN apt-get update && \
     apt-get install -y --no-install-recommends gcc libpq5 && \
     rm -rf /var/lib/apt/lists/*
@@ -38,6 +41,9 @@ CMD ["pytest", "-v"]
 FROM python:3.10-slim AS runtime
 
 WORKDIR /app
+
+# Также устанавливаем PYTHONPATH для runtime
+ENV PYTHONPATH=/app
 
 RUN apt-get update && \
     apt-get install -y --no-install-recommends libpq5 && \
