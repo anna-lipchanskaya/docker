@@ -21,6 +21,9 @@ FROM python:3.10-slim AS test
 
 WORKDIR /app
 
+# Добавьте PYTHONPATH
+ENV PYTHONPATH=/app/src:$PYTHONPATH
+
 RUN apt-get update && \
     apt-get install -y --no-install-recommends gcc libpq5 && \
     rm -rf /var/lib/apt/lists/*
