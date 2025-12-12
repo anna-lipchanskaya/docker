@@ -3,7 +3,7 @@ name: CI/CD for FastAPI App
 on:
   push:
     branches: [ main, master ]
-    
+
 jobs:
   build-and-push:
     runs-on: self-hosted
@@ -17,8 +17,21 @@ jobs:
         id: set-sha
         run: echo "sha=${GITHUB_SHA}" >> $GITHUB_OUTPUT
 
-      - name: Log in to GHCR
-        run: echo "${{ secrets.GHCR_PAT }}" | podman login ghcr.io -u anna-lipchanskaya --password-stdin
+      - name: Setup Podman (rootless)
+        run: |
+          # Останавливаем демон если запущен
+          sudo systemctl stop podman podman.socket 2>/dev/null || true
+          # Удаляем старые сокеты
+          sudo rm -f /run/podman/podman.sock 2>/dev/null || true
+          # Разрешаем пользователю работать с Podman
+          sudo chmod 666 /var/run/docker.sock 2>/dev/null || true
+
+      - name: Log in to GHCR (rootless)
+        run: |
+          echo "${{ secrets.GHCR_PAT }}" | podman login ghcr.io \
+            -u anna-lipchanskaya \
+            --password-stdin \
+            --log-level=error
 
       - name: Build and push test image
         run: |
@@ -38,11 +51,19 @@ jobs:
     runs-on: self-hosted
     needs: build-and-push
     steps:
+      - name: Setup Podman
+        run: |
+          sudo systemctl stop podman 2>/dev/null || true
+          sudo rm -f /run/podman/podman.sock 2>/dev/null || true
+
       - name: Run tests
         run: |
           set -e
           IMAGE=ghcr.io/${{ github.repository }}/app:test-${{ github.sha }}
-          echo "${{ secrets.GHCR_PAT }}" | podman login ghcr.io -u anna-lipchanskaya --password-stdin
+          echo "${{ secrets.GHCR_PAT }}" | podman login ghcr.io \
+            -u anna-lipchanskaya \
+            --password-stdin \
+            --log-level=error
           podman run --rm --network host $IMAGE
           podman rmi $IMAGE || true
 
@@ -54,10 +75,13 @@ jobs:
       - name: Deploy
         run: |
           set -e
-          echo "${{ secrets.GHCR_PAT }}" | podman login ghcr.io -u anna-lipchanskaya --password-stdin
+          echo "${{ secrets.GHCR_PAT }}" | podman login ghcr.io \
+            -u anna-lipchanskaya \
+            --password-stdin \
+            --log-level=error
 
-          podman stop app || true
-          podman rm -f app || true
+          podman stop app 2>/dev/null || true
+          podman rm -f app 2>/dev/null || true
 
           podman run --replace -d \
             --name app \
