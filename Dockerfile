@@ -21,6 +21,12 @@ FROM python:3.10-slim AS test
 
 WORKDIR /app
 
+<<<<<<< HEAD
+=======
+# Добавьте PYTHONPATH
+ENV PYTHONPATH=/app/src:$PYTHONPATH
+
+>>>>>>> 0de4a39b7a0f3ae11031299865a2dde696b03ac1
 RUN apt-get update && \
     apt-get install -y --no-install-recommends gcc libpq5 && \
     rm -rf /var/lib/apt/lists/*
@@ -60,4 +66,3 @@ ENV PATH="/home/appuser/.local/bin:${PATH}"
 EXPOSE 8112
 
 CMD ["python", "-m", "uvicorn", "src.main:app", "--host", "0.0.0.0", "--port", "8112"]
-
