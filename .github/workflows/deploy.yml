@@ -1,76 +1,67 @@
-name: CI/CD for FastAPI App
+name: CI/CD
 
 on:
   push:
-    branches: [ main, master ]
-    
+    branches: [ main ]
+
 jobs:
   build-and-push:
     runs-on: self-hosted
     outputs:
       sha: ${{ steps.set-sha.outputs.sha }}
-      
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v3
 
-      - name: Fix podman state
-        run: |
-          podman system migrate || true
-          podman system reset --force || true
-
-      - name: SHA
+      - name: Set image SHA
         id: set-sha
-        run: echo "sha=${GITHUB_SHA}" >> $GITHUB_OUTPUT
+        run: echo "::set-output name=sha::${GITHUB_SHA}"
 
       - name: Log in to GHCR
-        run: echo "${{ secrets.GHCR_PAT }}" | podman login ghcr.io -u anna-lipchanskaya --password-stdin
+        run: |
+          echo "${{ secrets.GHCR_TOKEN }}" | podman login ghcr.io -u "${{ github.actor }}" --password-stdin
 
       - name: Build and push test image
         run: |
-          IMAGE=ghcr.io/${{ github.repository }}/app:test-${{ github.sha }}
-          podman build --target test -t $IMAGE .
-          podman push $IMAGE
+          IMAGE_TEST=ghcr.io/anna-lipchanskaya/python-app:test-${{ github.sha }}
+          podman build --target test -t $IMAGE_TEST .
+          podman push $IMAGE_TEST
 
       - name: Build and push runtime image
         run: |
-          IMAGE_SHA=ghcr.io/${{ github.repository }}/app:runtime-${{ github.sha }}
-          IMAGE_LATEST=ghcr.io/${{ github.repository }}/app:latest
-          podman build --target runtime -t $IMAGE_SHA -t $IMAGE_LATEST .
-          podman push $IMAGE_SHA
-          podman push $IMAGE_LATEST
+          IMAGE_RUNTIME=ghcr.io/anna-lipchanskaya/python-app:runtime-${{ github.sha }}
+          podman build --target runtime -t $IMAGE_RUNTIME .
+          podman push $IMAGE_RUNTIME
 
   test:
     runs-on: self-hosted
     needs: build-and-push
     steps:
-      - name: Run tests
+      - name: Run tests locally
         run: |
           set -e
-          IMAGE=ghcr.io/${{ github.repository }}/app:test-${{ github.sha }}
-          echo "${{ secrets.GHCR_PAT }}" | podman login ghcr.io -u anna-lipchanskaya --password-stdin
-          podman run --rm --network host $IMAGE
-          podman rmi $IMAGE || true
+          IMAGE_TEST=ghcr.io/anna-lipchanskaya/python-app:test-${{ github.sha }}
+          podman login ghcr.io -u "${{ github.actor }}" -p "${{ secrets.GHCR_TOKEN }}"
+          podman run --rm --name python-app-test --network host $IMAGE_TEST python -m pytest -v tests
+          podman rmi $IMAGE_TEST || true
 
   deploy:
     runs-on: self-hosted
     needs: test
-    if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master'
     steps:
-      - name: Deploy
+      - name: Deploy runtime image locally
         run: |
           set -e
-          echo "${{ secrets.GHCR_PAT }}" | podman login ghcr.io -u anna-lipchanskaya --password-stdin
 
-          podman stop app || true
-          podman rm -f app || true
+          IMAGE_RUNTIME=ghcr.io/anna-lipchanskaya/python-app:runtime-${{ github.sha }}
 
-          podman run --replace -d \
-            --name app \
-            --restart always \
-            -p 8112:8112 \
-            ghcr.io/${{ github.repository }}/app:latest
+          podman login ghcr.io -u "${{ github.actor }}" -p "${{ secrets.GHCR_TOKEN }}"
+
+          podman stop python-app || true
+          podman rm -f python-app || true
+
+          podman run --replace -d --name python-app --network host -p 8055:8055 $IMAGE_RUNTIME
 
           podman images --format "{{.Repository}}:{{.Tag}}" \
-            | grep '/app:runtime-' \
+            | grep 'python-app:runtime-' \
             | grep -v "${{ github.sha }}" \
             | xargs -r podman rmi -f || true
