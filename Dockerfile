@@ -1,42 +1,63 @@
-FROM ubuntu:22.04
-
-ENV PYTHONDONTWRITEBYTECODE=1
-ENV PYTHONUNBUFFERED=1
-ENV DEBIAN_FRONTEND=noninteractive
-ENV TZ=Europe/Moscow
-ENV PORT=8112
+# ---------- Stage 1: Builder ----------
+FROM python:3.10-slim AS builder
 
 WORKDIR /app
 
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    python3.10 \
-    python3-pip \
-    python3.10-venv \
-    gcc \
-    postgresql-client \
-    libpq-dev \
-    curl \
-    ca-certificates \
-    netcat-openbsd \
-    && rm -rf /var/lib/apt/lists/*
-
-RUN ln -s /usr/bin/python3 /usr/local/bin/python
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends gcc && \
+    rm -rf /var/lib/apt/lists/*
 
 COPY pyproject.toml ./
 
-RUN pip3 install --no-cache-dir --upgrade pip && \
-    pip3 install --no-cache-dir .
+ENV PIP_NO_CACHE_DIR=1
 
-COPY . .
+RUN python -m pip install --no-cache-dir --upgrade pip && \
+    python -m pip install --no-cache-dir .
 
-RUN useradd -m -u 1000 appuser && chown -R appuser:appuser /app
+COPY src ./src
+
+# ---------- Stage 2: Test ----------
+FROM python:3.10-slim AS test
+
+WORKDIR /app
+
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends gcc libpq5 && \
+    rm -rf /var/lib/apt/lists/*
+
+COPY pyproject.toml ./
+COPY --from=builder /usr/local/lib/python3.10/site-packages /usr/local/lib/python3.10/site-packages
+COPY src ./src
+COPY tests ./tests
+
+RUN python -m pip install --no-cache-dir -e ".[test]"
+
+CMD ["pytest", "-v"]
+
+# ---------- Stage 3: Runtime ----------
+FROM python:3.10-slim AS runtime
+
+WORKDIR /app
+
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends libpq5 && \
+    rm -rf /var/lib/apt/lists/* && \
+    apt-get clean
+
+COPY --from=builder /usr/local/lib/python3.10/site-packages /usr/local/lib/python3.10/site-packages
+COPY --from=builder /usr/local/bin /usr/local/bin
+COPY --from=builder /app/src /app/src
+
+RUN find /usr/local/lib/python3.10/site-packages -name '__pycache__' -type d -exec rm -rf {} + \
+    && find /usr/local/lib/python3.10/site-packages -name '*.pyc' -type f -delete
+
+RUN useradd -u 1000 appuser && \
+    chown -R appuser:appuser /app
+
 USER appuser
+ENV PATH="/home/appuser/.local/bin:${PATH}"
 
-ENV PYTHONPATH=/app
+EXPOSE 8064
 
-EXPOSE 8112
+CMD ["python", "-m", "uvicorn", "src.main:app", "--host", "0.0.0.0", "--port", "8064"]
 
-HEALTHCHECK --interval=30s --timeout=3s --start-period=10s --retries=3 \
-  CMD curl -f http://localhost:8112/users/ || exit 1
-
-CMD ["uvicorn", "src.main:app", "--host", "0.0.0.0", "--port", "8112"]

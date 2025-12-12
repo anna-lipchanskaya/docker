@@ -1,0 +1,13 @@
+Metadata-Version: 2.4
+Name: KubSU
+Version: 0.1.0
+Requires-Python: >=3.10.2
+Requires-Dist: fastapi==0.115.8
+Requires-Dist: uvicorn==0.34.0
+Requires-Dist: sqlalchemy==2.0.37
+Requires-Dist: psycopg-binary==3.2.4
+Requires-Dist: psycopg==3.2.4
+Provides-Extra: test
+Requires-Dist: pytest>=6.2.5; extra == "test"
+Requires-Dist: pytest-asyncio==0.25.3; extra == "test"
+Requires-Dist: httpx==0.28.1; extra == "test"
