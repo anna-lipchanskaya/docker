@@ -64,7 +64,7 @@ jobs:
           podman stop python-app || true
           podman rm -f python-app || true
 
-          podman run --replace -d --name python-app --network host -p 8112 $IMAGE_RUNTIME
+          podman run --replace -d --name python-app --network host -p "${{ secrets.PORT }}" $IMAGE_RUNTIME
 
           podman images --format "{{.Repository}}:{{.Tag}}" \
             | grep 'python-app:runtime-' \
